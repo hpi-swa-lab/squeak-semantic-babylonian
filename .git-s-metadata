@@ -1,0 +1,15 @@
+GSMetadata {
+	#version : 1,
+	#mappers : [
+		GSTonelMapper {
+			#version : 1,
+			#package : MCPackage {
+				#name : 'BPAgent'
+			},
+			#path : FSAbsolutePath [
+				'packages'
+			]
+		}
+	],
+	#name : 'squeak-semantic-babylonian'
+}
