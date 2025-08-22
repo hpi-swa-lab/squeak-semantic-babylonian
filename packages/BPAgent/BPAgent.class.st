@@ -478,3 +478,12 @@ BPAgent >> tryEval: aString withResultDo: resultBlock withErrorDo: errorBlock [
 					^ errorBlock value: ex]].
 	^ resultBlock value: result
 ]
+
+{
+	#category : #private,
+	#'squeak_changestamp' : 'ct 7/8/2025 20:07'
+}
+BPAgent >> withAgentAuthorInitialsDo: aBlock [
+
+	^ Utilities useAuthorInitials: 'agent' during: aBlock
+]
