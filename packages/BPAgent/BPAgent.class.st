@@ -90,7 +90,7 @@ BPAgent >> browseClass: className selector: selectorString [
 
 {
 	#category : #functions,
-	#'squeak_changestamp' : 'ct 7/8/2025 20:27'
+	#'squeak_changestamp' : 'ct 8/22/2025 19:31'
 }
 BPAgent >> browseImplementors: selectorString [
 	"get a list of methods in the system that implement this selector."
@@ -98,7 +98,7 @@ BPAgent >> browseImplementors: selectorString [
 		selector: string
 	)>
 
-	| longSize detailSize selector senders detailSample sample moreSample |
+	| longSize detailSize selector implementors detailSample sample moreSample |
 	self incrementAndCheckBrowsingCounter.
 	
 	longSize := 20.
@@ -108,8 +108,8 @@ BPAgent >> browseImplementors: selectorString [
 	(selector beginsWith: '#') ifTrue: [selector := selector allButFirst].
 	selector := selector asSymbol.
 	
-	senders := self systemNavigation allImplementorsOf: selector.
-	sample := self rankSenders: senders forQuery: nil take: longSize.
+	implementors := self systemNavigation allImplementorsOf: selector.
+	sample := self sampleMethods: implementors take: longSize.
 	
 	sample ifEmpty: [^ 'no implementors'].
 	
@@ -166,7 +166,7 @@ BPAgent >> browsePackage: packageName [
 
 {
 	#category : #functions,
-	#'squeak_changestamp' : 'ct 7/8/2025 19:08'
+	#'squeak_changestamp' : 'ct 8/22/2025 19:31'
 }
 BPAgent >> browseSenders: selectorString [
 	"get a list of methods in the system that use this selector (i.e., call a method with that name). useful to find examples that teach you how you can invoke a method."
@@ -185,7 +185,7 @@ BPAgent >> browseSenders: selectorString [
 	selector := selector asSymbol.
 	
 	senders := self systemNavigation allCallsOn: selector.
-	sample := self rankSenders: senders forQuery: nil take: longSize.
+	sample := self sampleMethods: senders take: longSize.
 	
 	detailSample := sample take: detailSize.
 	sample := sample allButFirst: detailSample size.
@@ -335,22 +335,6 @@ BPAgent >> orderedFunctionNames [
 ]
 
 {
-	#category : #private,
-	#'squeak_changestamp' : 'ct 7/7/2025 17:47'
-}
-BPAgent >> rankSenders: senders forQuery: queryOrNil take: anInteger [
-
-	| corpus |
-	corpus := SesqMethodCorpus instance.
-	corpus ifNil:
-		[^ (senders semanticRandomSample: anInteger * 10) withoutDuplicates take: anInteger].
-	^ corpus
-		rankObjects: senders
-		clusteredSampleForQuery: queryOrNil
-		take: anInteger
-]
-
-{
 	#category : #functions,
 	#'squeak_changestamp' : 'ct 7/8/2025 20:14'
 }
@@ -402,6 +386,16 @@ BPAgent >> restorePreviousMethods [
 			ifTrue: [[method key fileIn] ifError: ["self halt." method value methodClass methodDict at: method value selector put: method value]]
 			ifFalse: [method actualClass removeSelector: method selector].
 		true]
+]
+
+{
+	#category : #private,
+	#'squeak_changestamp' : 'ct 8/22/2025 19:30'
+}
+BPAgent >> sampleMethods: methods take: anInteger [
+
+	methods ifEmpty: [^ #()].
+	^ (methods semanticRandomSample: anInteger * 10) withoutDuplicates take: anInteger
 ]
 
 {
