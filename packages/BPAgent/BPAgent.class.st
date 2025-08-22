@@ -4,19 +4,23 @@ Class {
 	#instVars : [
 		'object',
 		'lastTrace',
-		'previousMethods'
+		'previousMethods',
+		'browsesSinceLastLog',
+		'knownMethods'
 	],
 	#category : #BPAgent
 }
 
 {
 	#category : #functions,
-	#'squeak_changestamp' : 'ct 7/7/2025 17:46'
+	#'squeak_changestamp' : 'ct 7/8/2025 20:39'
 }
 BPAgent >> browseClass: className [
 	"get the definition, comment, and all method names ('selectors') of the class"
 	<function: browseClass(className: string)>
 
+	self incrementAndCheckBrowsingCounter.
+	
 	^ self browseClass: className meta: false
 ]
 
@@ -59,7 +63,7 @@ BPAgent >> browseClass: className meta: isMeta [
 
 {
 	#category : #functions,
-	#'squeak_changestamp' : 'ct 7/7/2025 17:46'
+	#'squeak_changestamp' : 'ct 7/8/2025 19:08'
 }
 BPAgent >> browseClass: className selector: selectorString [
 	"get the full source code of the method className>>selector"
@@ -69,6 +73,8 @@ BPAgent >> browseClass: className selector: selectorString [
 	)>
 
 	| class selector |
+	self incrementAndCheckBrowsingCounter.
+	
 	class := (self environment classNamed: className)
 		ifNil: [self error: 'unknown class'].
 	selector := selectorString.
@@ -84,7 +90,7 @@ BPAgent >> browseClass: className selector: selectorString [
 
 {
 	#category : #functions,
-	#'squeak_changestamp' : 'ct 7/7/2025 17:49'
+	#'squeak_changestamp' : 'ct 7/8/2025 20:27'
 }
 BPAgent >> browseImplementors: selectorString [
 	"get a list of methods in the system that implement this selector."
@@ -92,7 +98,9 @@ BPAgent >> browseImplementors: selectorString [
 		selector: string
 	)>
 
-	| longSize detailSize selector senders detailSample sample |
+	| longSize detailSize selector senders detailSample sample moreSample |
+	self incrementAndCheckBrowsingCounter.
+	
 	longSize := 20.
 	detailSize := 10.
 	
@@ -103,26 +111,32 @@ BPAgent >> browseImplementors: selectorString [
 	senders := self systemNavigation allImplementorsOf: selector.
 	sample := self rankSenders: senders forQuery: nil take: longSize.
 	
+	sample ifEmpty: [^ 'no implementors'].
+	
 	detailSample := sample take: detailSize.
-	sample := sample allButFirst: detailSample size.
+	moreSample := sample allButFirst: detailSample size.
+	
+	moreSample ifEmpty: [^ OrderedJsonObject new implementors: (detailSample collect: [:method | self sourceForClass: method actualClass selector: method selector]); yourself].
 	
 	^ OrderedJsonObject new
 		sampleImplementors:
 			(detailSample collect: [:method | self sourceForClass: method actualClass selector: method selector]);
 		moreSampleImplementors:
-			(sample collect: [:method | method sesqName]);
+			(moreSample collect: [:method | method sesqName]);
 		yourself
 ]
 
 {
 	#category : #functions,
-	#'squeak_changestamp' : 'ct 7/7/2025 17:46'
+	#'squeak_changestamp' : 'ct 7/8/2025 19:08'
 }
 BPAgent >> browsePackage: packageName [
 	"get all classes in the package"
 	<function: browsePackage(packageName: string)>
 
 	| package |
+	self incrementAndCheckBrowsingCounter.
+	
 	package := self environment packageOrganizer
 		packageNamed: packageName
 		ifAbsent: [self error: 'unknown package'].
@@ -152,7 +166,7 @@ BPAgent >> browsePackage: packageName [
 
 {
 	#category : #functions,
-	#'squeak_changestamp' : 'ct 7/7/2025 17:47'
+	#'squeak_changestamp' : 'ct 7/8/2025 19:08'
 }
 BPAgent >> browseSenders: selectorString [
 	"get a list of methods in the system that use this selector (i.e., call a method with that name). useful to find examples that teach you how you can invoke a method."
@@ -161,6 +175,8 @@ BPAgent >> browseSenders: selectorString [
 	)>
 
 	| longSize detailSize selector senders detailSample sample |
+	self incrementAndCheckBrowsingCounter.
+	
 	longSize := 20.
 	detailSize := 10.
 	
@@ -209,73 +225,95 @@ BPAgent >> eval: aString [
 
 {
 	#category : #functions,
-	#'squeak_changestamp' : 'ct 7/7/2025 17:56'
+	#'squeak_changestamp' : 'ct 7/8/2025 19:09'
 }
-BPAgent >> getTracedValues [
-	"Get all traced values from the last evaluated expression."
-	<function: getTracedExpressions()>
+BPAgent >> evalWithLogs: aString [
+	"evaluate a Smalltalk expression and record during the execution. Returns all logged expressions."
+	<function: evalWithLogs(expression: string)>
 
+	| result |
+	lastTrace := nil.
+	result := self
+		tryEval: aString
+		withErrorDo: [:ex |
+			^ self serializeExceptionVerbosely: ex].
+	self resetBrowsingCounter.
 	^ lastTrace generateOutput
 ]
 
 {
+	#category : #private,
+	#'squeak_changestamp' : 'ct 7/8/2025 20:41'
+}
+BPAgent >> incrementAndCheckBrowsingCounter [
+
+	(browsesSinceLastLog := browsesSinceLastLog + 1) >= 5 ifTrue:
+		[self error: 'No more browsing allowed, you must first log runtime data from the previous methods by calling `recompileWithLogs()` and then `evalWithLogs()`!'].
+]
+
+{
 	#category : #'initialize-release',
-	#'squeak_changestamp' : 'ct 7/7/2025 19:22'
+	#'squeak_changestamp' : 'ct 7/8/2025 19:36'
 }
 BPAgent >> initialize [
 
 	super initialize.
 	previousMethods := OrderedCollection new.
+	browsesSinceLastLog := 0.
+	knownMethods := Set new.
 ]
 
 {
 	#category : #conversation,
-	#'squeak_changestamp' : 'ct 7/7/2025 21:38'
+	#'squeak_changestamp' : 'ct 7/8/2025 19:55'
 }
 BPAgent >> initializeConversation: aConversation [
 
 	super initializeConversation: aConversation.
 	
 	aConversation withConfigDo: [:config | config temperature: 0.4].
-	aConversation addSystemMessage: 'You are an autonomous agent which gets a "why does this not work question" by a programmer and automatically answers this question by finding the cause of a problem. For this, you work highly autonomically by developing possible hypotheses, trying to validate or falsify them by reading and changing the source code, and iterating until you can answer the original question.
+	aConversation addSystemMessage: 'You are an autonomous agent which answer questions about runtime behavior of a program. Typical questions are "Why was this method invoked" or "Where does this value come from". You answer these questions by directly interacting with the runtime system. First, you can BROWSE the source code of classes and methods. Second, you can insert LOGGING statements into any methods and RUN examples to gather runtime values and thus improve your understanding code.
 
-You are operating in an interactive Squeak/Smalltalk system.
+You are operating in an interactive Squeak/Smalltalk system where you have direct access to the runtime. You should take advantage of this context and use interactive functions a lot. DO NOT only read static source code and try to reason what it does, but DO regularly seek evidence by using logging statements and rerunning.
 
-Your workflow looks like this:
-0. You get a question by the programmer, which includes a way to reproduce their problem/observation.
-1. You reproduce the problem/observation.
-2. Repeat until done:
-2.1. Develop possible hypotheses that spawn subquestions (e.g., it could be that this subsystem is wrong, that X was forgotten, that Y is buggy)
-2.2. Experimentally test these hypotheses and answer your subquestions by interacting with the programming system through tools. Your central mechanism for interacting with the system are different empirical tools, which you can use to access source code, instrument it with additional tracing code, and run code examples (see below).
-2.3. Evaluate these hypotheses based on your findings. Until you are done, generate new hypotheses and repeat 2.
-3. If you have found the problem that answers the original question, report your findings and experiments you ran to the user and exit.
+You must adhere to the following iterative workflow:
+0. You get a question by the programmer, which includes a way to reproduce their observation ("example").
+1. You reproduce the observation by RUNNING the example (via the `eval()` function).
+2. Iteratively repeat until done:
+2.1. BROWSE one or a few relevant methods to retrieve more context about the problem (via `browseMethod()` & Co.). You MUST NOT browse more than 5 methods before going to 2.2 (LOGGING).
+2.2. LOG values from relevant methods and RERUN an example to get runtime context about the source code (via `recompileWithLogs()` + `evalWithLogs()`). For this, you may ask subordinate questions first to clarify what you need to know (e.g., what value does this variable hold, which branch in this method is taken, what method will be invoked here). Make sure to ask yourself these questions OFTEN and ALWAYS answering them through logging + rerunning!
+2.3. Evaluate the results from your logs to answer your subordinate questions. Until you are done, generate new questions and repeat 2.
+3. If you have found a full answer to the original question of the user, report your findings and experiments you ran to the user and exit. Do not terminate before you have found a full answer/explanation for their question.
 	Note that if you propose a fix, you should also test and confirm it before completing your reply.
 
 Available tools:
-- Code browsing: Browse code in the image by calling browsePackage(), browseClass(), browseMethod(), browseSenders(), and browseImplementors().
-- Tracing: Trace any expression inside any methods by recompiling (aka instrumenting) them with additional code to record the value of any nodes in the AST.
+- Code BROWSING: Browse code in the image by calling `browsePackage()`, `browseClass()`, `browseMethod()`, `browseSenders()`, or `browseImplementors()`.
+- LOGGING: Log any expressions inside any methods by recompiling them with additional inserted logging statements. These logging states are placed as wrappers around any nodes in the AST to record their runtime values.
 	For example, given this method:
+		```smalltalk
 		foo: arg
 			bar := self doSomethingWith: arg.
 			(self testSometing: bar)
 				ifTrue: [^ bar plonk].
 			self griffle: bar.
 			^ bar plonkWith: self
-	You can instrument this method like this:
+		```
+	You can recompile this method like this with added logging statements:
+		```smalltalk
 		foo: arg
 			bar := ((self bpTraceWithId: 1) doSomethingWith: (arg bpTraceWithId: 2)) bpTraceWithId: 3.
 			(self testSometing: bar)
 				ifTrue: [^ (bar plonk) bpTraceWithId: 4].
 			self griffle: bar.
 			^ (bar plonkWith: self) bpTraceWithId: 5
-	For instrumentation, you need to call browseMethod() first to get the source code, then call recompile() to decorate it with inserted (... bpTraceWithId: <id>) expressions that wrap existing expressions anywhere in the AST. You MUST make up unique IDs for every tracing expression in the system! DO NOT FORGET to wrap the decorated expression into brackets, e.g. `a ifTrue: [b]` to `((a bpTraceWithId: 1) ifTrue: [(b bpTraceWithId: 2)]) bpTraceWithId: 3`!
-	You can then run examples via eval().
-	After that, you can retrieve the traced values by calling getTracedValues().
-- Running code: You can run any tests/examples by calling eval() with a short expression (do-it) or script.
+		```
+	For logging, you need to have browsed the method before to know its source code. Then call `recompileWithLogs()` to decorate it with inserted (... bpTraceWithId: <id>) expressions that wrap existing expressions anywhere in the AST. You MUST make up unique IDs for every tracing expression in the system! DO NOT FORGET to wrap the decorated expression into brackets, e.g. `a ifTrue: [b]` to `((a bpTraceWithId: 1) ifTrue: [(b bpTraceWithId: 2)]) bpTraceWithId: 3`!
+	Finally, after recompiling rerun any example via `evalWithLogs()`.
+- RUNNING code: You can run any tests/examples by calling `eval()` with a short expression (do-it) or script.
 
 You MUST think out aloud and process the above workflow.
-You MUST only answer to the user when you have constructed and empirically confirmed a hypotheses by calling tools. DO NOT tell the user what they should try out - try it our by yourself.
-Remember that you have live access to the system and use it. The use of instrumentation via recompile() + getTracedValues() is essential for successful investigation in most cases.'.
+You MUST only answer to the user when you have constructed and empirically confirmed a complete hypotheses by calling tools. DO NOT tell the user what they should try out - try it our by yourself.
+DO NOT GUESS anything about the actual behavior of the code - whenever something is unclear (such as which code was executed), **ALWAYS USE LOGGING (`recompileWithLogs()` + `evalWithLogs()`)** to empirically validate your assumptions.'.
 ]
 
 {
@@ -289,11 +327,11 @@ BPAgent >> object [
 
 {
 	#category : #functions,
-	#'squeak_changestamp' : 'ct 7/7/2025 17:47'
+	#'squeak_changestamp' : 'ct 7/8/2025 18:58'
 }
 BPAgent >> orderedFunctionNames [
 
-	^ #(browsePackage: browseClass: browseClass:selector: browseSenders:)
+	^ #(browsePackage: browseClass: browseClass:selector: browseSenders: eval: recompile:source: evalWithLogs:)
 ]
 
 {
@@ -314,11 +352,11 @@ BPAgent >> rankSenders: senders forQuery: queryOrNil take: anInteger [
 
 {
 	#category : #functions,
-	#'squeak_changestamp' : 'ct 7/7/2025 20:35'
+	#'squeak_changestamp' : 'ct 7/8/2025 20:14'
 }
 BPAgent >> recompile: className source: sourceString [
 	"..."
-	<function: recompile "Recompile a method in the system with changed source code, e.g., after decorating it with tracing.
+	<function: recompileWithLogs "recompile a method in the system with source code that is decorated with logging expressions.
 		Example: recompile(""MyClass"", ""foo: arg ^ (arg plonk) bpTraceWithId: 42"")"
 	(
 		className: string,
@@ -332,21 +370,36 @@ BPAgent >> recompile: className source: sourceString [
 	(source beginsWith: className , '>>') ifTrue: [source := source allButFirst: (className , '>>') size].
 	(source beginsWith: className , ' >> ') ifTrue: [source := source allButFirst: (className , ' >> ') size].
 	selector := class newParser parseSelector: source.
-	previousMethods addLast: ((class changeRecordsAt: selector) ifNotNil: [:records | records first] ifNil: [MethodReference class: class selector: selector]).
+	class methodDict
+		at: selector
+		ifPresent: [:method | (knownMethods includes: method) ifFalse: [browsesSinceLastLog := 3. self error: 'You cannot recompile a method before have browsed it. You may browse it now. You have one new browse operation left.']]
+		ifAbsent: [browsesSinceLastLog := 3. self error: 'This method does not exist, so you cannot recompile it. You have one new browse operation left.'].
+	previousMethods addFirst: ((class changeRecordsAt: selector) ifNotNil: [:records | records first -> (class >> selector)] ifNil: [MethodReference class: class selector: selector]).
 	
-	selector := class compile: source.
+	selector := self withAgentAuthorInitialsDo: [class compile: source].
+	knownMethods add: class >> selector.
 	^ 'Successfully recompiled {1}>>{2}' format: {class. selector}
 ]
 
 {
-	#category : #'as yet unclassified',
-	#'squeak_changestamp' : 'ct 7/7/2025 19:27'
+	#category : #private,
+	#'squeak_changestamp' : 'ct 7/8/2025 19:11'
+}
+BPAgent >> resetBrowsingCounter [
+
+	browsesSinceLastLog := 0.
+]
+
+{
+	#category : #functions,
+	#'squeak_changestamp' : 'ct 7/8/2025 20:31'
 }
 BPAgent >> restorePreviousMethods [
+	<function: resetAllMethods "as a last resort, revert all changed methods when something is broken. Note that this does NOT reset the browsing limit."()>
 
 	previousMethods removeAllSuchThat: [:method |
-		(method isKindOf: ChangeRecord)
-			ifTrue: [method fileIn]
+		(method isKindOf: Association)
+			ifTrue: [[method key fileIn] ifError: ["self halt." method value methodClass methodDict at: method value selector put: method value]]
 			ifFalse: [method actualClass removeSelector: method selector].
 		true]
 ]
@@ -392,13 +445,14 @@ BPAgent >> serializeExceptionVerbosely: anException [
 
 {
 	#category : #private,
-	#'squeak_changestamp' : 'ct 7/7/2025 17:47'
+	#'squeak_changestamp' : 'ct 7/8/2025 19:37'
 }
 BPAgent >> sourceForClass: aClass selector: selector [
 
 	| source |
 	source := (aClass sourceCodeAt: selector ifAbsent: [self error: ('Class {1} has no method {2}' format: {aClass name. selector printString})])
 		truncateWithEllipsisTo: 6000.
+	knownMethods add: aClass >> selector.
 	^ aClass name , '>>' , source asString withUnixLineEndings
 ]
 
